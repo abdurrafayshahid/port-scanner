@@ -117,38 +117,76 @@ def main():
     """)
     
     local_ips = get_local_addresses()
-    print("0. Manual input")
     
-    common_ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 3306, 3389, 8080]
-    
-    for i, addr in enumerate(local_ips, 1):
-        print(f"Checking {addr['ip']}...", end="\r")
-        open_count = count_open_ports(addr['ip'], common_ports)
-        print(f"{i}. {addr['ip']} ({addr['interface']}) [{open_count} common ports open]")
+    if not local_ips:
+        print("No local IPv4 addresses found.")
+    else:
+        for i, addr in enumerate(local_ips, 1):
+            print(f"Checking {addr['ip']}...", end="\r")
+            open_count = count_open_ports(addr['ip'], [21, 22, 80, 443])
+            print(f"{i}. {addr['ip']} ({addr['interface']}) [{open_count} common ports open]")
 
-    while True:
+    target_ip = None
+
+    while target_ip is None:
         try:
-            choice = input("\nSelect an address to scan (0-{}): ".format(len(local_ips))).strip()
+            choice = input(f"\nSelect an address to scan (0-{len(local_ips)}): ").strip()
             if choice == '0':
                 target_ip = input("Enter target IP or hostname: ").strip()
+                if not target_ip:
+                    print("Target cannot be empty.")
+                    target_ip = None
                 break
+            
             if choice.isdigit() and 1 <= int(choice) <= len(local_ips):
                 target_ip = local_ips[int(choice)-1]['ip']
                 break
-            print("Invalid choice.")
+            else:
+                print("Invalid choice. Please try again.")
         except ValueError:
-            print("Please enter a number.")
+            print("Invalid input. Please enter a number.")
 
     print(f"\nTarget selected: {target_ip}")
     
-    port_input = input("Enter port range (e.g., 1-1024) or specific ports (80,443) [Default 1-1024]: ").strip()
-    if not port_input:
-        ports = list(range(1, 1025))
-    elif "-" in port_input:
-        start, end = map(int, port_input.split("-"))
-        ports = list(range(start, end + 1))
-    else:
-        ports = [int(p) for p in port_input.split(",")]
+    ports = []
+    while not ports:
+        port_input = input("Enter port range (e.g., 1-1024) or specific ports (80,443) [Default 1-1024]: ").strip()
+        
+        try:
+            if not port_input:
+                ports = list(range(1, 1025))
+            elif "-" in port_input:
+                parts = port_input.split("-")
+                if len(parts) != 2:
+                    raise ValueError("Invalid range format.")
+                
+                start = int(parts[0])
+                end = int(parts[1])
+                
+                if start > end:
+                    raise ValueError("Start port cannot be greater than end port.")
+                if start < 1 or end > 65535:
+                    raise ValueError("Ports must be between 1 and 65535.")
+                
+                ports = list(range(start, end + 1))
+            else:
+                parts = port_input.split(",")
+                for p in parts:
+                    p = p.strip()
+                    if not p: continue
+                    val = int(p)
+                    if 1 <= val <= 65535:
+                        ports.append(val)
+                    else:
+                        raise ValueError(f"Port {val} out of range.")
+            
+            if not ports:
+                raise ValueError("No valid ports provided.")
+
+        except ValueError as e:
+            print(f"Error: {e}")
+            print("Please enter valid numeric ports.\n")
+            ports = []
 
     is_syn = input("Use SYN scan? (requires root) [y/N]: ").lower().strip() == 'y'
     run_port_scan(target_ip, ports, 'syn' if is_syn else 'connect')
